@@ -24,7 +24,7 @@
  * ---- info   : This is part of the "lglw" package.
  * ----
  * ---- created: 04Aug2018
- * ---- changed: 05Aug2018
+ * ---- changed: 05Aug2018, 06Aug2018
  * ----
  * ----
  */
@@ -96,6 +96,11 @@ typedef struct lglw_int_s {
       uint32_t         state;
       lglw_focus_fxn_t cbk;
    } focus;
+
+   struct {
+      lglw_bool_t      b_running;
+      lglw_timer_fxn_t cbk;
+   } timer;
 
 } lglw_int_t;
 
@@ -361,6 +366,8 @@ void lglw_window_close (lglw_t _lglw) {
    {
       if(NULL != lglw->win.hwnd)
       {
+         lglw_timer_stop(_lglw);
+
          loc_key_unhook(lglw);
 
          DestroyWindow(lglw->win.hwnd);
@@ -761,6 +768,50 @@ void lglw_mouse_cursor_show (lglw_t _lglw, lglw_bool_t _bShow) {
 }
 
 
+// ---------------------------------------------------------------------------- lglw_timer_start
+void lglw_timer_start(lglw_t _lglw, uint32_t _millisec) {
+   LGLW(_lglw);
+
+   if(NULL != lglw)
+   {
+      if(NULL != lglw->win.hwnd)
+      {
+         (void)SetTimer(lglw->win.hwnd, 1/*nIDEvent*/, _millisec, NULL/*lpTimerFunc*/);
+         lglw->timer.b_running = LGLW_TRUE;
+      }
+   }
+}
+
+
+// ---------------------------------------------------------------------------- lglw_timer_stop
+void lglw_timer_stop(lglw_t _lglw) {
+   LGLW(_lglw);
+
+   if(NULL != lglw)
+   {
+      if(NULL != lglw->win.hwnd)
+      {
+         if(lglw->timer.b_running)
+         {
+            (void)KillTimer(lglw->win.hwnd, 1/*nIDEvent*/);
+            lglw->timer.b_running = LGLW_FALSE;
+         }
+      }
+   }
+}
+
+
+// ---------------------------------------------------------------------------- lglw_timer_callback_set
+void lglw_timer_callback_set(lglw_t _lglw, lglw_timer_fxn_t _cbk) {
+   LGLW(_lglw);
+
+   if(NULL != lglw)
+   {
+      lglw->timer.cbk = _cbk;
+   }
+}
+
+
 // ---------------------------------------------------------------------------- loc_LowLevelKeyboardProc
 static LRESULT CALLBACK loc_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
@@ -1070,6 +1121,15 @@ LRESULT CALLBACK loc_WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
             // https://docs.microsoft.com/en-us/windows/desktop/api/Winuser/nf-winuser-redrawwindow
             Dprintf("xxx lglw: WM_PAINT\n");
             break;
+
+         case WM_TIMER:
+            // Dprintf("xxx lglw: WM_TIMER cbk=%p\n", lglw->timer.cbk);
+            if(NULL != lglw->timer.cbk)
+            {
+               lglw->timer.cbk(lglw);
+            }
+            break;
+
       } // switch message
    } // if lglw
 

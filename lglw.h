@@ -24,7 +24,7 @@
  * ---- info   : This is part of the "lglw" package.
  * ----
  * ---- created: 04Aug2018
- * ---- changed: 05Aug2018
+ * ---- changed: 05Aug2018, 06Aug2018
  * ----
  * ----
  */
@@ -139,6 +139,9 @@ typedef void (*lglw_focus_fxn_t) (lglw_t _lglw, uint32_t _focusState, uint32_t _
 //  (note) 'vkey' is either a special key (cursor, insert, ..) or a unicode-translated character
 typedef void (*lglw_keyboard_fxn_t) (lglw_t _lglw, uint32_t _vkey, uint32_t _kmod, lglw_bool_t _bPressed);
 
+// Timer callback function type
+typedef void (*lglw_timer_fxn_t) (lglw_t _lglw);
+
 
 // Initialize LGLW instance
 //  (note) (w; h) determine the hidden window size, which should match the size of the actual window that is created later on
@@ -213,6 +216,16 @@ void lglw_mouse_warp (lglw_t _lglw, int32_t _x, int32_t _y);
 
 // Show / hide mouse pointer
 void lglw_mouse_cursor_show (lglw_t _lglw, lglw_bool_t _bShow);
+
+// Start periodic timer
+//  (note) requires an output window (see lglw_window_open())
+void lglw_timer_start (lglw_t _lglw, uint32_t _millisec);
+
+// Stop periodic timer
+void lglw_timer_stop (lglw_t _lglw);
+
+// Set periodic timer callback
+void lglw_timer_callback_set (lglw_t _lglw, lglw_timer_fxn_t _cbk);
 
 
 #include "cplusplus_end.h"
