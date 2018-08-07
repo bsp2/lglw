@@ -24,7 +24,7 @@
  * ---- info   : This is part of the "lglw" package.
  * ----
  * ---- created: 04Aug2018
- * ---- changed: 05Aug2018, 06Aug2018
+ * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018
  * ----
  * ----
  */
@@ -88,8 +88,12 @@ typedef struct lglw_int_s {
       lglw_vec2i_t     p;  // last seen mouse position
       uint32_t         button_state;
       lglw_mouse_fxn_t cbk;
-      uint32_t         grab_mode;
-      lglw_vec2i_t     grab_p;  // grab-start mouse position
+      struct {
+         uint32_t         mode;
+         lglw_vec2i_t     p;  // grab-start mouse position
+         lglw_bool_t      b_queue_warp;
+         lglw_vec2i_t     last_p;
+      } grab;
    } mouse;
 
    struct {
@@ -101,6 +105,14 @@ typedef struct lglw_int_s {
       lglw_bool_t      b_running;
       lglw_timer_fxn_t cbk;
    } timer;
+
+   struct {
+      lglw_dropfiles_fxn_t cbk;
+   } dropfiles;
+
+   struct {
+      lglw_redraw_fxn_t cbk;
+   } redraw;
 
 } lglw_int_t;
 
@@ -119,8 +131,11 @@ static void loc_handle_mouseleave (lglw_int_t *lglw);
 static void loc_handle_mouseenter (lglw_int_t *lglw);
 static void loc_handle_mousebutton (lglw_int_t *lglw, lglw_bool_t _bPressed, uint32_t _button);
 static void loc_handle_mousemotion (lglw_int_t *lglw);
+static void loc_handle_queued_mouse_warp (lglw_int_t *lglw);
 
 static void loc_handle_key (lglw_int_t *lglw, lglw_bool_t _bPressed, uint32_t _vkey);
+
+static void loc_enable_dropfiles (lglw_int_t *lglw, lglw_bool_t _bEnable);
 
 
 // ---------------------------------------------------------------------------- module vars
@@ -353,6 +368,8 @@ lglw_bool_t lglw_window_open (lglw_t _lglw, void *_parentHWNDOrNull, int32_t _x,
       SetPixelFormat(lglw->win.hdc, pfmt, &pfd);
 
       (void)SetWindowLongPtr(lglw->win.hwnd, GWLP_USERDATA, (LONG_PTR)lglw);
+
+      loc_enable_dropfiles(lglw, (NULL != lglw->dropfiles.cbk));
    }
    return r;
 }
@@ -440,6 +457,32 @@ void lglw_window_size_get(lglw_t _lglw, int32_t *_retX, int32_t *_retY) {
       }
    }
 }
+
+
+// ---------------------------------------------------------------------------- lglw_redraw
+void lglw_redraw(lglw_t _lglw) {
+   LGLW(_lglw);
+
+   if(NULL != lglw)
+   {
+      if(NULL != lglw->win.hwnd)
+      {
+         RedrawWindow(lglw->win.hwnd, NULL/*lprcUpdate*/, NULL/*hrgnUpdate*/, RDW_INTERNALPAINT | RDW_UPDATENOW);
+      }
+   }
+}
+
+
+// ---------------------------------------------------------------------------- lglw_redraw_callback_set
+void lglw_redraw_callback_set(lglw_t _lglw, lglw_redraw_fxn_t _cbk) {
+   LGLW(_lglw);
+
+   if(NULL != lglw)
+   {
+      lglw->redraw.cbk = _cbk;
+   }
+}
+
 
 // ---------------------------------------------------------------------------- lglw_glcontext_push
 void lglw_glcontext_push(lglw_t _lglw) {
@@ -668,7 +711,7 @@ void lglw_mouse_grab(lglw_t _lglw, uint32_t _grabMode) {
    {
       if(NULL != lglw->win.hwnd)
       {
-         if(lglw->mouse.grab_mode != _grabMode)
+         if(lglw->mouse.grab.mode != _grabMode)
          {
             lglw_mouse_ungrab(_lglw);
          }
@@ -681,14 +724,15 @@ void lglw_mouse_grab(lglw_t _lglw, uint32_t _grabMode) {
 
             case LGLW_MOUSE_GRAB_CAPTURE:
                (void)SetCapture(lglw->win.hwnd);
-               lglw->mouse.grab_mode = _grabMode;
+               lglw->mouse.grab.mode = _grabMode;
                break;
 
             case LGLW_MOUSE_GRAB_WARP:
                (void)SetCapture(lglw->win.hwnd);
                lglw_mouse_cursor_show(_lglw, LGLW_FALSE);
-               lglw->mouse.grab_p = lglw->mouse.p;
-               lglw->mouse.grab_mode = _grabMode;
+               lglw->mouse.grab.p = lglw->mouse.p;
+               lglw->mouse.grab.last_p = lglw->mouse.p;
+               lglw->mouse.grab.mode = _grabMode;
                break;
          }
       }
@@ -704,7 +748,7 @@ void lglw_mouse_ungrab(lglw_t _lglw) {
    {
       if(NULL != lglw->win.hwnd)
       {
-         switch(lglw->mouse.grab_mode)
+         switch(lglw->mouse.grab.mode)
          {
             default:
             case LGLW_MOUSE_GRAB_NONE:
@@ -712,13 +756,13 @@ void lglw_mouse_ungrab(lglw_t _lglw) {
 
             case LGLW_MOUSE_GRAB_CAPTURE:
                (void)ReleaseCapture();
-               lglw->mouse.grab_mode = LGLW_MOUSE_GRAB_NONE;
+               lglw->mouse.grab.mode = LGLW_MOUSE_GRAB_NONE;
                break;
 
             case LGLW_MOUSE_GRAB_WARP:
                (void)ReleaseCapture();
-               lglw->mouse.grab_mode = LGLW_MOUSE_GRAB_NONE;
-               lglw_mouse_warp(_lglw, lglw->mouse.grab_p.x, lglw->mouse.grab_p.y);
+               lglw->mouse.grab.mode = LGLW_MOUSE_GRAB_NONE;
+               lglw->mouse.grab.b_queue_warp = LGLW_TRUE;
                lglw_mouse_cursor_show(_lglw, LGLW_TRUE);
                break;
          }
@@ -743,13 +787,24 @@ void lglw_mouse_warp(lglw_t _lglw, int32_t _x, int32_t _y) {
          {
             SetCursorPos(p.x, p.y);
 
-            if(LGLW_MOUSE_GRAB_WARP != lglw->mouse.grab_mode)
+            if(LGLW_MOUSE_GRAB_WARP != lglw->mouse.grab.mode)
             {
                lglw->mouse.p.x = p.x;
                lglw->mouse.p.y = p.y;
             }
          }
       }
+   }
+}
+
+
+// ---------------------------------------------------------------------------- loc_handle_queued_mouse_warp
+static void loc_handle_queued_mouse_warp(lglw_int_t *lglw) {
+   if(lglw->mouse.grab.b_queue_warp)
+   {
+      lglw->mouse.grab.b_queue_warp = LGLW_FALSE;
+      lglw_mouse_warp(lglw, lglw->mouse.grab.p.x, lglw->mouse.grab.p.y);
+      lglw->mouse.grab.last_p = lglw->mouse.grab.p;
    }
 }
 
@@ -808,6 +863,28 @@ void lglw_timer_callback_set(lglw_t _lglw, lglw_timer_fxn_t _cbk) {
    if(NULL != lglw)
    {
       lglw->timer.cbk = _cbk;
+   }
+}
+
+
+// ---------------------------------------------------------------------------- loc_enable_dropfiles
+static void loc_enable_dropfiles(lglw_int_t *lglw, lglw_bool_t _bEnable) {
+   if(NULL != lglw->win.hwnd)
+   {
+      DragAcceptFiles(lglw->win.hwnd, _bEnable ? TRUE : FALSE);
+   }
+}
+
+
+// ---------------------------------------------------------------------------- lglw_dropfiles_callback_set
+void lglw_dropfiles_callback_set(lglw_t _lglw, lglw_dropfiles_fxn_t _cbk) {
+   LGLW(_lglw);
+
+   if(NULL != _lglw)
+   {
+      lglw->dropfiles.cbk = _cbk;
+
+      loc_enable_dropfiles(lglw, (NULL != _cbk));
    }
 }
 
@@ -1026,12 +1103,15 @@ LRESULT CALLBACK loc_WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
                int32_t x = GET_X_LPARAM(lParam);  // lo
                int32_t y = GET_Y_LPARAM(lParam);  // hi
 
-               if(LGLW_MOUSE_GRAB_WARP == lglw->mouse.grab_mode)
+               if(LGLW_MOUSE_GRAB_WARP == lglw->mouse.grab.mode)
                {
-                  lglw_mouse_warp(lglw, lglw->mouse.grab_p.x, lglw->mouse.grab_p.y);
+                  lglw->mouse.grab.b_queue_warp = LGLW_TRUE;
 
-                  lglw->mouse.p.x += (x - lglw->mouse.grab_p.x);
-                  lglw->mouse.p.y += (y - lglw->mouse.grab_p.y);
+                  lglw->mouse.p.x += (x - lglw->mouse.grab.last_p.x);
+                  lglw->mouse.p.y += (y - lglw->mouse.grab.last_p.y);
+
+                  lglw->mouse.grab.last_p.x = x;
+                  lglw->mouse.grab.last_p.y = y;
                }
                else
                {
@@ -1090,7 +1170,7 @@ LRESULT CALLBACK loc_WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
          case WM_CAPTURECHANGED:
             // e.g. after alt-tab
             Dprintf("xxx lglw: WM_CAPTURECHANGED\n");
-            lglw->mouse.grab_mode = LGLW_MOUSE_GRAB_NONE;
+            lglw->mouse.grab.mode = LGLW_MOUSE_GRAB_NONE;
             break;
 
 #if 0
@@ -1119,16 +1199,58 @@ LRESULT CALLBACK loc_WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
 
          case WM_PAINT:
             // https://docs.microsoft.com/en-us/windows/desktop/api/Winuser/nf-winuser-redrawwindow
-            Dprintf("xxx lglw: WM_PAINT\n");
+            // Dprintf("xxx lglw: WM_PAINT\n");
+            loc_handle_queued_mouse_warp(lglw);
+            if(NULL != lglw->redraw.cbk)
+            {
+               lglw->redraw.cbk(lglw);
+            }
             break;
 
          case WM_TIMER:
             // Dprintf("xxx lglw: WM_TIMER cbk=%p\n", lglw->timer.cbk);
+            loc_handle_queued_mouse_warp(lglw);
+
             if(NULL != lglw->timer.cbk)
             {
                lglw->timer.cbk(lglw);
             }
             break;
+
+           case WM_DROPFILES:
+              if(NULL != lglw->dropfiles.cbk)
+              {
+                 HDROP hDrop = (HDROP) wParam;
+                 POINT p;
+
+                 if(TRUE == DragQueryPoint(hDrop, &p))
+                 {
+                    Dprintf("xxx lglw: WM_DROPFILES: p=(%d; %d)\n", p.x, p.y);
+
+                    UINT numFiles = DragQueryFile(hDrop, 0xffffffff, NULL, 0);
+                    Dprintf("xxx lglw: WM_DROPFILES: dropped %u file(s)\n", numFiles);
+
+                    if(numFiles > 0u)
+                    {
+                       UINT i;
+                       char **pathnames = malloc((sizeof(char*) * numFiles) + (MAX_PATH * sizeof(char) * numFiles));
+                       char *pathname = (char*)&pathnames[numFiles];
+
+                       for(i=0; i<numFiles; i++)
+                       {
+                          DragQueryFile(hDrop, i, pathname, MAX_PATH);
+                          Dprintf("xxx lglw: WM_DROPFILES: file[%d] = \"%s\"\n", i, pathname);
+                          pathnames[i] = pathname;
+                          pathname += MAX_PATH;
+                       }
+
+                       lglw->dropfiles.cbk(lglw, p.x, p.y, numFiles, pathnames);
+
+                       free(pathnames);
+                    }
+                 }
+              }
+              break;
 
       } // switch message
    } // if lglw

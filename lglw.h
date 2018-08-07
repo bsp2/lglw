@@ -24,7 +24,7 @@
  * ---- info   : This is part of the "lglw" package.
  * ----
  * ---- created: 04Aug2018
- * ---- changed: 05Aug2018, 06Aug2018
+ * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018
  * ----
  * ----
  */
@@ -142,6 +142,11 @@ typedef void (*lglw_keyboard_fxn_t) (lglw_t _lglw, uint32_t _vkey, uint32_t _kmo
 // Timer callback function type
 typedef void (*lglw_timer_fxn_t) (lglw_t _lglw);
 
+// File drag'n'drop callback function type
+typedef void (*lglw_dropfiles_fxn_t) (lglw_t _lglw, int32_t _x, int32_t _y, uint32_t _numFiles, const char**_pathNames);
+
+// Redraw function type
+typedef void (*lglw_redraw_fxn_t) (lglw_t _lglw);
 
 // Initialize LGLW instance
 //  (note) (w; h) determine the hidden window size, which should match the size of the actual window that is created later on
@@ -176,6 +181,12 @@ lglw_bool_t lglw_window_is_visible (lglw_t _lglw);
 
 // Get window size
 void lglw_window_size_get (lglw_t _lglw, int32_t *_retX, int32_t *_retY);
+
+// Redraw window (send message)
+void lglw_redraw (lglw_t _lglw);
+
+// Set redraw callback
+void lglw_redraw_callback_set (lglw_t _lglw, lglw_redraw_fxn_t _cbk);
 
 // Save previous GL context and bind LGLW context
 void lglw_glcontext_push (lglw_t _lglw);
@@ -226,6 +237,9 @@ void lglw_timer_stop (lglw_t _lglw);
 
 // Set periodic timer callback
 void lglw_timer_callback_set (lglw_t _lglw, lglw_timer_fxn_t _cbk);
+
+// Set file drag'n'drop callback
+void lglw_dropfiles_callback_set (lglw_t _lglw, lglw_dropfiles_fxn_t _cbk);
 
 
 #include "cplusplus_end.h"
