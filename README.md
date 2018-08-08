@@ -12,6 +12,7 @@ It was designed for OpenGL based VST plugin UIs.
 * keyboard input works in VST hosts
 * mouse input
    - mouse grab (lock / warp) feature
+   - touch input
 * file drag'n'drop support
 * event driven
    - mouse, focus, keyboard, dropfiles, timer, and redraw callback functions

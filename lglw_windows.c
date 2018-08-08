@@ -24,7 +24,7 @@
  * ---- info   : This is part of the "lglw" package.
  * ----
  * ---- created: 04Aug2018
- * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018
+ * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018, 08Aug2018
  * ----
  * ----
  */
@@ -41,7 +41,6 @@
 #define Dprintf if(0);else printf
 // #define Dprintf if(1);else printf
 
-
 // ---------------------------------------------------------------------------- macros and defines
 #define LGLW(a) lglw_int_t *lglw = ((lglw_int_t*)(a))
 
@@ -50,6 +49,16 @@
 
 #define LGLW_DEFAULT_HIDDEN_W  (800)
 #define LGLW_DEFAULT_HIDDEN_H  (600)
+
+#define LGLW_MOUSE_TOUCH_LMB_TIMEOUT   (250u)
+#define LGLW_MOUSE_TOUCH_RMB_TIMEOUT   (500u)
+#define LGLW_MOUSE_TOUCH_RMB_STATE_IDLE  (0u)
+#define LGLW_MOUSE_TOUCH_RMB_STATE_LMB   (1u)
+#define LGLW_MOUSE_TOUCH_RMB_STATE_WAIT  (2u)
+#define LGLW_MOUSE_TOUCH_RMB_STATE_RMB   (3u)
+#define LGLW_MOUSE_TOUCH_RMB_MOVE_THRESHOLD  (7u)
+
+#define sABS(x) (((x)>0)?(x):-(x))
 
 
 // ---------------------------------------------------------------------------- structs and typedefs
@@ -94,6 +103,14 @@ typedef struct lglw_int_s {
          lglw_bool_t      b_queue_warp;
          lglw_vec2i_t     last_p;
       } grab;
+      struct {
+         lglw_bool_t      b_enable;
+         lglw_bool_t      b_update_queued;
+         lglw_bool_t      b_syn_rmb;
+         uint32_t         syn_rmb_hold_state;  // see LGLW_MOUSE_TOUCH_RMB_STATE_xxx
+         uint32_t         hold_start_ms;
+         lglw_vec2i_t     hold_start_p;
+      } touch;
    } mouse;
 
    struct {
@@ -126,14 +143,14 @@ static LRESULT CALLBACK loc_WndProc (HWND hWnd, UINT message, WPARAM wParam, LPA
 static void loc_key_hook(lglw_int_t *lglw);
 static void loc_key_unhook(lglw_int_t *lglw);
 static LRESULT CALLBACK loc_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
+static lglw_bool_t loc_handle_key (lglw_int_t *lglw, lglw_bool_t _bPressed, uint32_t _vkey);
 
 static void loc_handle_mouseleave (lglw_int_t *lglw);
 static void loc_handle_mouseenter (lglw_int_t *lglw);
 static void loc_handle_mousebutton (lglw_int_t *lglw, lglw_bool_t _bPressed, uint32_t _button);
 static void loc_handle_mousemotion (lglw_int_t *lglw);
 static void loc_handle_queued_mouse_warp (lglw_int_t *lglw);
-
-static void loc_handle_key (lglw_int_t *lglw, lglw_bool_t _bPressed, uint32_t _vkey);
+static void loc_touchinput_update (lglw_int_t *lglw);
 
 static void loc_enable_dropfiles (lglw_int_t *lglw, lglw_bool_t _bEnable);
 
@@ -655,12 +672,15 @@ void lglw_focus_callback_set(lglw_t _lglw, lglw_focus_fxn_t _cbk) {
 
 
 // ---------------------------------------------------------------------------- loc_handle_key
-static void loc_handle_key(lglw_int_t *lglw, lglw_bool_t _bPressed, uint32_t _vkey) {
+static lglw_bool_t loc_handle_key(lglw_int_t *lglw, lglw_bool_t _bPressed, uint32_t _vkey) {
+   lglw_bool_t r = LGLW_FALSE;
 
    if(NULL != lglw->keyboard.cbk)
    {
-      lglw->keyboard.cbk(lglw, _vkey, lglw->keyboard.kmod_state, _bPressed);
+      r = lglw->keyboard.cbk(lglw, _vkey, lglw->keyboard.kmod_state, _bPressed);
    }
+
+   return r;
 }
 
 
@@ -711,29 +731,32 @@ void lglw_mouse_grab(lglw_t _lglw, uint32_t _grabMode) {
    {
       if(NULL != lglw->win.hwnd)
       {
-         if(lglw->mouse.grab.mode != _grabMode)
+         if(!lglw->mouse.touch.b_enable)
          {
-            lglw_mouse_ungrab(_lglw);
-         }
+            if(lglw->mouse.grab.mode != _grabMode)
+            {
+               lglw_mouse_ungrab(_lglw);
+            }
 
-         switch(_grabMode)
-         {
-            default:
-            case LGLW_MOUSE_GRAB_NONE:
-               break;
+            switch(_grabMode)
+            {
+               default:
+               case LGLW_MOUSE_GRAB_NONE:
+                  break;
 
-            case LGLW_MOUSE_GRAB_CAPTURE:
-               (void)SetCapture(lglw->win.hwnd);
-               lglw->mouse.grab.mode = _grabMode;
-               break;
+               case LGLW_MOUSE_GRAB_CAPTURE:
+                  (void)SetCapture(lglw->win.hwnd);
+                  lglw->mouse.grab.mode = _grabMode;
+                  break;
 
-            case LGLW_MOUSE_GRAB_WARP:
-               (void)SetCapture(lglw->win.hwnd);
-               lglw_mouse_cursor_show(_lglw, LGLW_FALSE);
-               lglw->mouse.grab.p = lglw->mouse.p;
-               lglw->mouse.grab.last_p = lglw->mouse.p;
-               lglw->mouse.grab.mode = _grabMode;
-               break;
+               case LGLW_MOUSE_GRAB_WARP:
+                  (void)SetCapture(lglw->win.hwnd);
+                  lglw_mouse_cursor_show(_lglw, LGLW_FALSE);
+                  lglw->mouse.grab.p = lglw->mouse.p;
+                  lglw->mouse.grab.last_p = lglw->mouse.p;
+                  lglw->mouse.grab.mode = _grabMode;
+                  break;
+            }
          }
       }
    }
@@ -748,23 +771,26 @@ void lglw_mouse_ungrab(lglw_t _lglw) {
    {
       if(NULL != lglw->win.hwnd)
       {
-         switch(lglw->mouse.grab.mode)
+         if(!lglw->mouse.touch.b_enable)
          {
-            default:
-            case LGLW_MOUSE_GRAB_NONE:
-               break;
+            switch(lglw->mouse.grab.mode)
+            {
+               default:
+               case LGLW_MOUSE_GRAB_NONE:
+                  break;
 
-            case LGLW_MOUSE_GRAB_CAPTURE:
-               (void)ReleaseCapture();
-               lglw->mouse.grab.mode = LGLW_MOUSE_GRAB_NONE;
-               break;
+               case LGLW_MOUSE_GRAB_CAPTURE:
+                  (void)ReleaseCapture();
+                  lglw->mouse.grab.mode = LGLW_MOUSE_GRAB_NONE;
+                  break;
 
-            case LGLW_MOUSE_GRAB_WARP:
-               (void)ReleaseCapture();
-               lglw->mouse.grab.mode = LGLW_MOUSE_GRAB_NONE;
-               lglw->mouse.grab.b_queue_warp = LGLW_TRUE;
-               lglw_mouse_cursor_show(_lglw, LGLW_TRUE);
-               break;
+               case LGLW_MOUSE_GRAB_WARP:
+                  (void)ReleaseCapture();
+                  lglw->mouse.grab.mode = LGLW_MOUSE_GRAB_NONE;
+                  lglw->mouse.grab.b_queue_warp = LGLW_TRUE;
+                  lglw_mouse_cursor_show(_lglw, LGLW_TRUE);
+                  break;
+            }
          }
       }
    }
@@ -889,16 +915,64 @@ void lglw_dropfiles_callback_set(lglw_t _lglw, lglw_dropfiles_fxn_t _cbk) {
 }
 
 
+// ---------------------------------------------------------------------------- loc_touchinput_update
+typedef void (*EnableMouseInPointer_fxn_t)(BOOL fEnable);
+static void loc_touchinput_update(lglw_int_t *lglw) {
+   HMODULE hDLL = LoadLibrary("User32.dll");
+
+   if(NULL != hDLL)
+   {
+      EnableMouseInPointer_fxn_t enableMouseInPointer = (EnableMouseInPointer_fxn_t)
+         GetProcAddress(hDLL, "EnableMouseInPointer");
+
+      if(NULL != enableMouseInPointer)
+      {
+         Dprintf("[dbg] lglw: EnableMouseInPointer() detected (win8+)\n");
+         (void)enableMouseInPointer(lglw->mouse.touch.b_enable);
+      }
+
+      FreeLibrary(hDLL);
+   }
+}
+
+
+// ---------------------------------------------------------------------------- lglw_touchinput_set
+void lglw_touchinput_set(lglw_t _lglw, lglw_bool_t _bEnable) {
+   LGLW(_lglw);
+
+   if(NULL != _lglw)
+   {
+      lglw->mouse.touch.b_enable = _bEnable;
+      lglw->mouse.touch.b_update_queued = LGLW_TRUE;
+   }
+}
+
+
+// ---------------------------------------------------------------------------- lglw_touchinput_get
+lglw_bool_t lglw_touchinput_get(lglw_t _lglw) {
+   lglw_bool_t r = LGLW_FALSE;
+   LGLW(_lglw);
+
+   if(NULL != _lglw)
+   {
+      r = lglw->mouse.touch.b_enable;
+   }
+
+   return r;
+}
+
+
 // ---------------------------------------------------------------------------- loc_LowLevelKeyboardProc
 static LRESULT CALLBACK loc_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
-   // Dprintf("xxx lglw:loc_LowLevelKeyboardProc: wParam=0x%08x lParam=0x%08x\n", (uint32_t)wParam, (uint32_t)lParam);
+   Dprintf("xxx lglw:loc_LowLevelKeyboardProc: wParam=0x%08x lParam=0x%08x\n", (uint32_t)wParam, (uint32_t)lParam);
 
-   if(NULL != khook_lglw)
+   if(HC_ACTION == nCode)
    {
-      if(HC_ACTION == nCode)
+      if(NULL != khook_lglw)
       {
          KBDLLHOOKSTRUCT *hs = (KBDLLHOOKSTRUCT*)lParam;
+         lglw_bool_t bHandled = LGLW_FALSE;
 
          switch(wParam)
          {
@@ -927,7 +1001,7 @@ static LRESULT CALLBACK loc_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARA
                         if(ToUnicode(hs->vkCode, hs->scanCode, keyState, (LPWSTR)ucBuf, 8/*cchBuff*/, 0/*wFlags*/) >= 1)
                         {
                            // Dprintf("xxx lglw toUnicode: ucBuf[0]=0x%04x\n", ucBuf[0]);
-                           loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, ucBuf[0]);
+                           bHandled = loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, ucBuf[0]);
                         }
                         else
                         {
@@ -936,7 +1010,7 @@ static LRESULT CALLBACK loc_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARA
                      }
                      else
                      {
-                        loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, hs->vkCode | LGLW_VKEY_EXT);
+                        bHandled = loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, hs->vkCode | LGLW_VKEY_EXT);
                      }
                      break;
 
@@ -956,31 +1030,31 @@ static LRESULT CALLBACK loc_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARA
                   case VK_TAB:
                   case VK_RETURN:
                   case VK_ESCAPE:
-                     loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, hs->vkCode | LGLW_VKEY_EXT);
+                     bHandled = loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, hs->vkCode | LGLW_VKEY_EXT);
                      break;
 
                   case VK_LSHIFT:
                      // Dprintf("xxx lglw:loc_LowLevelKeyboardProc<down>: VK_LSHIFT\n");
                      khook_lglw->keyboard.kmod_state |= LGLW_KMOD_LSHIFT;
-                     loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, LGLW_VKEY_LSHIFT);
+                     bHandled = loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, LGLW_VKEY_LSHIFT);
                      break;
 
                   case VK_RSHIFT:
                      // Dprintf("xxx lglw:loc_LowLevelKeyboardProc<down>: VK_RSHIFT\n");
                      khook_lglw->keyboard.kmod_state |= LGLW_KMOD_RSHIFT;
-                     loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, LGLW_VKEY_RSHIFT);
+                     bHandled = loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, LGLW_VKEY_RSHIFT);
                      break;
 
                   case VK_LCONTROL:
                      // Dprintf("xxx lglw:loc_LowLevelKeyboardProc<down>: VK_LCONTROL\n");
                      khook_lglw->keyboard.kmod_state |= LGLW_KMOD_LCTRL;
-                     loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, LGLW_VKEY_LCTRL);
+                     bHandled = loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, LGLW_VKEY_LCTRL);
                      break;
 
                   case VK_RCONTROL:
                      // Dprintf("xxx lglw:loc_LowLevelKeyboardProc<down>: VK_RCONTROL\n");
                      khook_lglw->keyboard.kmod_state |= LGLW_KMOD_RCTRL;
-                     loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, LGLW_VKEY_RCTRL);
+                     bHandled = loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, LGLW_VKEY_RCTRL);
                      break;
 
                      //case VK_RWIN:
@@ -1011,12 +1085,12 @@ static LRESULT CALLBACK loc_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARA
 
                         if(ToUnicode(hs->vkCode, hs->scanCode, keyState, (LPWSTR)ucBuf, 8/*cchBuff*/, 0/*wFlags*/) >= 1)
                         {
-                           loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, ucBuf[0]);
+                           bHandled = loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, ucBuf[0]);
                         }
                      }
                      else
                      {
-                        loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, hs->vkCode | LGLW_VKEY_EXT);
+                        bHandled = loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, hs->vkCode | LGLW_VKEY_EXT);
                      }
                      break;
 
@@ -1036,34 +1110,45 @@ static LRESULT CALLBACK loc_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARA
                   case VK_TAB:
                   case VK_RETURN:
                   case VK_ESCAPE:
-                     loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, hs->vkCode | LGLW_VKEY_EXT);
+                     bHandled = loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, hs->vkCode | LGLW_VKEY_EXT);
                      break;
 
                   case VK_LSHIFT:
                      khook_lglw->keyboard.kmod_state &= ~LGLW_KMOD_LSHIFT;
-                     loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, LGLW_VKEY_LSHIFT);
+                     bHandled = loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, LGLW_VKEY_LSHIFT);
                      break;
 
                   case VK_RSHIFT:
                      khook_lglw->keyboard.kmod_state &= ~LGLW_KMOD_RSHIFT;
-                     loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, LGLW_VKEY_RSHIFT);
+                     bHandled = loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, LGLW_VKEY_RSHIFT);
                      break;
 
                   case VK_LCONTROL:
                      khook_lglw->keyboard.kmod_state &= ~LGLW_KMOD_LCTRL;
-                     loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, LGLW_VKEY_LCTRL);
+                     bHandled = loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, LGLW_VKEY_LCTRL);
                      break;
 
                   case VK_RCONTROL:
                      khook_lglw->keyboard.kmod_state &= ~LGLW_KMOD_RCTRL;
-                     loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, LGLW_VKEY_RCTRL);
+                     bHandled = loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, LGLW_VKEY_RCTRL);
                      break;
                }
                break;
          }
-      }
-   }
 
+         if(!bHandled)
+         {
+            Dprintf("xxx lglw: CallNextHookEx<kbd>\n");
+            return CallNextHookEx(NULL, nCode, wParam, lParam);
+         }
+         else
+         {
+            Dprintf("xxx lglw: CallNextHookEx<kbd>: was handled\n");
+            return 1;
+         }
+
+      } // if khook_lglw
+   }
    return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
@@ -1099,6 +1184,12 @@ LRESULT CALLBACK loc_WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
 
          case WM_MOUSEMOVE:
             // Dprintf("xxx lglw: WM_MOUSEMOVE:\n");
+            if(lglw->mouse.touch.b_update_queued)
+            {
+               loc_touchinput_update(lglw);
+               lglw->mouse.touch.b_update_queued = LGLW_FALSE;
+            }
+            if(!lglw->mouse.touch.b_enable)
             {
                int32_t x = GET_X_LPARAM(lParam);  // lo
                int32_t y = GET_Y_LPARAM(lParam);  // hi
@@ -1129,33 +1220,51 @@ LRESULT CALLBACK loc_WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
             break;
 
          case WM_LBUTTONDOWN:
-            // Dprintf("xxx lglw: WM_LBUTTONDOWN\n");
-            loc_handle_mousebutton(lglw, LGLW_TRUE/*bPressed*/, LGLW_MOUSE_LBUTTON);
+            if(!lglw->mouse.touch.b_enable)
+            {
+               // Dprintf("xxx lglw: WM_LBUTTONDOWN\n");
+               loc_handle_mousebutton(lglw, LGLW_TRUE/*bPressed*/, LGLW_MOUSE_LBUTTON);
+            }
             break;
 
          case WM_LBUTTONUP:
-            // Dprintf("xxx lglw: WM_LBUTTONUP\n");
-            loc_handle_mousebutton(lglw, LGLW_FALSE/*bPressed*/, LGLW_MOUSE_LBUTTON);
+            if(!lglw->mouse.touch.b_enable)
+            {
+               // Dprintf("xxx lglw: WM_LBUTTONUP\n");
+               loc_handle_mousebutton(lglw, LGLW_FALSE/*bPressed*/, LGLW_MOUSE_LBUTTON);
+            }
             break;
 
          case WM_RBUTTONDOWN:
-            // Dprintf("xxx lglw: WM_RBUTTONDOWN\n");
-            loc_handle_mousebutton(lglw, LGLW_TRUE/*bPressed*/, LGLW_MOUSE_RBUTTON);
+            if(!lglw->mouse.touch.b_enable)
+            {
+               // Dprintf("xxx lglw: WM_RBUTTONDOWN\n");
+               loc_handle_mousebutton(lglw, LGLW_TRUE/*bPressed*/, LGLW_MOUSE_RBUTTON);
+            }
             break;
 
          case WM_RBUTTONUP:
-            // Dprintf("xxx lglw: WM_RBUTTONUP\n");
-            loc_handle_mousebutton(lglw, LGLW_FALSE/*bPressed*/, LGLW_MOUSE_RBUTTON);
+            if(!lglw->mouse.touch.b_enable)
+            {
+               // Dprintf("xxx lglw: WM_RBUTTONUP\n");
+               loc_handle_mousebutton(lglw, LGLW_FALSE/*bPressed*/, LGLW_MOUSE_RBUTTON);
+            }
             break;
 
          case WM_MBUTTONDOWN:
-            // Dprintf("xxx lglw: WM_MBUTTONDOWN\n");
-            loc_handle_mousebutton(lglw, LGLW_TRUE/*bPressed*/, LGLW_MOUSE_MBUTTON);
+            if(!lglw->mouse.touch.b_enable)
+            {
+               // Dprintf("xxx lglw: WM_MBUTTONDOWN\n");
+               loc_handle_mousebutton(lglw, LGLW_TRUE/*bPressed*/, LGLW_MOUSE_MBUTTON);
+            }
             break;
 
          case WM_MBUTTONUP:
-            // Dprintf("xxx lglw: WM_MBUTTONUP\n");
-            loc_handle_mousebutton(lglw, LGLW_FALSE/*bPressed*/, LGLW_MOUSE_MBUTTON);
+            if(!lglw->mouse.touch.b_enable)
+            {
+               // Dprintf("xxx lglw: WM_MBUTTONUP\n");
+               loc_handle_mousebutton(lglw, LGLW_FALSE/*bPressed*/, LGLW_MOUSE_MBUTTON);
+            }
             break;
 
          case WM_MOUSEWHEEL:
@@ -1209,7 +1318,46 @@ LRESULT CALLBACK loc_WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
 
          case WM_TIMER:
             // Dprintf("xxx lglw: WM_TIMER cbk=%p\n", lglw->timer.cbk);
-            loc_handle_queued_mouse_warp(lglw);
+            if(lglw->mouse.touch.b_enable)
+            {
+               // Dprintf("xxx lglw: WM_TIMER hold_state=%u\n", lglw->mouse.touch.syn_rmb_hold_state);
+               if(LGLW_MOUSE_TOUCH_RMB_STATE_IDLE != lglw->mouse.touch.syn_rmb_hold_state)
+               {
+                  uint32_t ms = (uint32_t)GetTickCount();
+                  uint32_t delta;
+                  if(ms < lglw->mouse.touch.hold_start_ms)
+                  {
+                     // Overflow after 49.7 days
+                     delta = ~lglw->mouse.touch.hold_start_ms + 1u + ms;
+                  }
+                  else
+                  {
+                     delta = (ms - lglw->mouse.touch.hold_start_ms);
+                  }
+
+                  if(LGLW_MOUSE_TOUCH_RMB_STATE_LMB == lglw->mouse.touch.syn_rmb_hold_state)
+                  {
+                     if(delta >= LGLW_MOUSE_TOUCH_LMB_TIMEOUT)
+                     {
+                        loc_handle_mousebutton(lglw, LGLW_FALSE/*bPressed*/, LGLW_MOUSE_LBUTTON);
+                        lglw->mouse.touch.syn_rmb_hold_state = LGLW_MOUSE_TOUCH_RMB_STATE_WAIT;
+                     }
+                  }
+
+                  if(LGLW_MOUSE_TOUCH_RMB_STATE_WAIT == lglw->mouse.touch.syn_rmb_hold_state)
+                  {
+                     if(delta >= LGLW_MOUSE_TOUCH_RMB_TIMEOUT)
+                     {
+                        lglw->mouse.touch.syn_rmb_hold_state = LGLW_MOUSE_TOUCH_RMB_STATE_RMB;
+                        loc_handle_mousebutton(lglw, LGLW_TRUE/*bPressed*/, LGLW_MOUSE_RBUTTON);
+                     }
+                  }
+               }
+            }
+            else
+            {
+               loc_handle_queued_mouse_warp(lglw);
+            }            
 
             if(NULL != lglw->timer.cbk)
             {
@@ -1251,6 +1399,190 @@ LRESULT CALLBACK loc_WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
                  }
               }
               break;
+
+              // Touch messages:
+#ifndef GET_X_LPARAM
+#define GET_X_LPARAM(lp)                        ((int)(short)LOWORD(lp))
+#define GET_Y_LPARAM(lp)                        ((int)(short)HIWORD(lp))
+#define GET_POINTERID_WPARAM(wParam)                (LOWORD(wParam))
+#define IS_POINTER_FLAG_SET_WPARAM(wParam, flag)    (((DWORD)HIWORD(wParam) & (flag)) == (flag))
+#define IS_POINTER_NEW_WPARAM(wParam)               IS_POINTER_FLAG_SET_WPARAM(wParam, POINTER_MESSAGE_FLAG_NEW)
+#define IS_POINTER_INRANGE_WPARAM(wParam)           IS_POINTER_FLAG_SET_WPARAM(wParam, POINTER_MESSAGE_FLAG_INRANGE)
+#define IS_POINTER_INCONTACT_WPARAM(wParam)         IS_POINTER_FLAG_SET_WPARAM(wParam, POINTER_MESSAGE_FLAG_INCONTACT)
+#define IS_POINTER_FIRSTBUTTON_WPARAM(wParam)       IS_POINTER_FLAG_SET_WPARAM(wParam, POINTER_MESSAGE_FLAG_FIRSTBUTTON)
+#define IS_POINTER_SECONDBUTTON_WPARAM(wParam)      IS_POINTER_FLAG_SET_WPARAM(wParam, POINTER_MESSAGE_FLAG_SECONDBUTTON)
+#define IS_POINTER_THIRDBUTTON_WPARAM(wParam)       IS_POINTER_FLAG_SET_WPARAM(wParam, POINTER_MESSAGE_FLAG_THIRDBUTTON)
+#define IS_POINTER_FOURTHBUTTON_WPARAM(wParam)      IS_POINTER_FLAG_SET_WPARAM(wParam, POINTER_MESSAGE_FLAG_FOURTHBUTTON)
+#define IS_POINTER_FIFTHBUTTON_WPARAM(wParam)       IS_POINTER_FLAG_SET_WPARAM(wParam, POINTER_MESSAGE_FLAG_FIFTHBUTTON)
+#define IS_POINTER_PRIMARY_WPARAM(wParam)           IS_POINTER_FLAG_SET_WPARAM(wParam, POINTER_MESSAGE_FLAG_PRIMARY)
+#define HAS_POINTER_CONFIDENCE_WPARAM(wParam)       IS_POINTER_FLAG_SET_WPARAM(wParam, POINTER_MESSAGE_FLAG_CONFIDENCE)
+#define IS_POINTER_CANCELED_WPARAM(wParam)          IS_POINTER_FLAG_SET_WPARAM(wParam, POINTER_MESSAGE_FLAG_CANCELED)
+#endif
+           case WM_POINTERDOWN:
+           {
+              POINT p;
+
+              lglw->mouse.touch.b_enable = LGLW_TRUE;
+              lglw->mouse.touch.b_update_queued = LGLW_FALSE;
+
+               if(0u == (lglw->focus.state & LGLW_FOCUS_MOUSE))
+               {
+                  loc_handle_mouseenter(lglw);
+               }
+
+              // Dprintf("xxx lglw: WM_POINTERDOWN\n");
+
+              // Dprintf("xxx lglw: WM_POINTERDOWN: IS_POINTER_FIRSTBUTTON_WPARAM(wParam)=%d\n", IS_POINTER_FIRSTBUTTON_WPARAM(wParam));
+              // Dprintf("xxx lglw: WM_POINTERDOWN: IS_POINTER_SECONDBUTTON_WPARAM(wParam)=%d\n", IS_POINTER_SECONDBUTTON_WPARAM(wParam));
+              // Dprintf("xxx lglw: WM_POINTERDOWN: IS_POINTER_THIRDBUTTON_WPARAM(wParam)=%d\n", IS_POINTER_THIRDBUTTON_WPARAM(wParam));
+
+              p.x = GET_X_LPARAM(lParam);
+              p.y = GET_Y_LPARAM(lParam);
+              (void)ScreenToClient(lglw->win.hwnd, &p);
+              lglw->mouse.p.x = p.x;
+              lglw->mouse.p.y = p.y;
+              loc_handle_mousemotion(lglw);
+
+              if(IS_POINTER_FIRSTBUTTON_WPARAM(wParam))
+              {
+                 lglw->mouse.touch.b_syn_rmb = (0u != (lglw->keyboard.kmod_state & LGLW_KMOD_CTRL));
+                 loc_handle_mousebutton(lglw, LGLW_TRUE/*bPressed*/,
+                                        lglw->mouse.touch.b_syn_rmb ? LGLW_MOUSE_RBUTTON : LGLW_MOUSE_LBUTTON
+                                        );
+                 if(lglw->mouse.touch.b_syn_rmb)
+                 {
+                    lglw->mouse.touch.syn_rmb_hold_state = LGLW_MOUSE_TOUCH_RMB_STATE_IDLE;
+                 }
+                 else
+                 {
+                    lglw->mouse.touch.syn_rmb_hold_state = LGLW_MOUSE_TOUCH_RMB_STATE_LMB;
+                    lglw->mouse.touch.hold_start_ms = GetTickCount();
+                    lglw->mouse.touch.hold_start_p = lglw->mouse.p;
+                 }
+              }
+              else if(IS_POINTER_SECONDBUTTON_WPARAM(wParam))
+              {
+                 loc_handle_mousebutton(lglw, LGLW_TRUE/*bPressed*/, LGLW_MOUSE_RBUTTON);
+              }
+              else if(IS_POINTER_THIRDBUTTON_WPARAM(wParam))
+              {
+                 loc_handle_mousebutton(lglw, LGLW_TRUE/*bPressed*/, LGLW_MOUSE_MBUTTON);
+              }
+           }
+           break;
+
+           case WM_POINTERUP:
+           {
+              POINT p;
+
+              // Dprintf("xxx lglw: WM_POINTERUP\n");
+
+              lglw->mouse.touch.b_enable = LGLW_TRUE;
+              lglw->mouse.touch.b_update_queued = LGLW_FALSE;
+
+              p.x = GET_X_LPARAM(lParam);
+              p.y = GET_Y_LPARAM(lParam);
+              (void)ScreenToClient(lglw->win.hwnd, &p);
+              lglw->mouse.p.x = p.x;
+              lglw->mouse.p.y = p.y;
+              loc_handle_mousemotion(lglw);
+
+              // Dprintf("xxx lglw: WM_POINTERUP: IS_POINTER_FIRSTBUTTON_WPARAM(wParam)=%d\n", IS_POINTER_FIRSTBUTTON_WPARAM(wParam));
+              // Dprintf("xxx lglw: WM_POINTERUP: IS_POINTER_SECONDBUTTON_WPARAM(wParam)=%d\n", IS_POINTER_SECONDBUTTON_WPARAM(wParam));
+              // Dprintf("xxx lglw: WM_POINTERUP: IS_POINTER_THIRDBUTTON_WPARAM(wParam)=%d\n", IS_POINTER_THIRDBUTTON_WPARAM(wParam));
+
+              if( (0u != (lglw->mouse.button_state & LGLW_MOUSE_LBUTTON)) && !IS_POINTER_FIRSTBUTTON_WPARAM(wParam) )
+              {
+                 if(LGLW_MOUSE_TOUCH_RMB_STATE_RMB == lglw->mouse.touch.syn_rmb_hold_state)
+                 {
+                    loc_handle_mousebutton(lglw, LGLW_FALSE/*bPressed*/, LGLW_MOUSE_RBUTTON);
+                 }
+                 else
+                 {
+                    loc_handle_mousebutton(lglw, LGLW_FALSE/*bPressed*/,
+                                           lglw->mouse.touch.b_syn_rmb ? LGLW_MOUSE_RBUTTON : LGLW_MOUSE_LBUTTON
+                                           );
+                 }
+                 lglw->mouse.touch.b_syn_rmb = LGLW_FALSE;
+                 lglw->mouse.touch.syn_rmb_hold_state = LGLW_MOUSE_TOUCH_RMB_STATE_IDLE;
+              }
+              else if( (0u != (lglw->mouse.button_state & LGLW_MOUSE_RBUTTON)) && !IS_POINTER_SECONDBUTTON_WPARAM(wParam))
+              {
+                 loc_handle_mousebutton(lglw, LGLW_FALSE/*bPressed*/, LGLW_MOUSE_RBUTTON);
+              }
+              else if( (0u != (lglw->mouse.button_state & LGLW_MOUSE_MBUTTON)) && !IS_POINTER_THIRDBUTTON_WPARAM(wParam))
+              {
+                 loc_handle_mousebutton(lglw, LGLW_FALSE/*bPressed*/, LGLW_MOUSE_MBUTTON);
+              }
+           }
+           break;
+
+           case WM_POINTERENTER:
+           {
+              POINT p;
+
+              Dprintf("xxx lglw: WM_POINTERENTER\n");
+
+              lglw->mouse.touch.b_enable = LGLW_TRUE;
+              lglw->mouse.touch.b_update_queued = LGLW_FALSE;
+
+               if(0u == (lglw->focus.state & LGLW_FOCUS_MOUSE))
+               {
+                  loc_handle_mouseenter(lglw);
+               }
+
+              p.x = GET_X_LPARAM(lParam);
+              p.y = GET_Y_LPARAM(lParam);
+              (void)ScreenToClient(lglw->win.hwnd, &p);
+              lglw->mouse.p.x = p.x;
+              lglw->mouse.p.y = p.y;
+              loc_handle_mousemotion(lglw);
+              loc_handle_mouseenter(lglw);
+           }
+           break;
+
+           case WM_POINTERLEAVE:
+           {
+              POINT p;
+
+              Dprintf("xxx lglw: WM_POINTERLEAVE\n");
+
+              lglw->mouse.touch.b_enable = LGLW_TRUE;
+              lglw->mouse.touch.b_update_queued = LGLW_FALSE;
+
+              p.x = GET_X_LPARAM(lParam);
+              p.y = GET_Y_LPARAM(lParam);
+              (void)ScreenToClient(lglw->win.hwnd, &p);
+              loc_handle_mouseleave(lglw);
+           }
+           break;
+
+           case WM_POINTERUPDATE:
+           {
+              POINT p;
+
+              lglw->mouse.touch.b_enable = LGLW_TRUE;
+              lglw->mouse.touch.b_update_queued = LGLW_FALSE;
+
+              p.x = GET_X_LPARAM(lParam);
+              p.y = GET_Y_LPARAM(lParam);
+              (void)ScreenToClient(lglw->win.hwnd, &p);
+              lglw->mouse.p.x = p.x;
+              lglw->mouse.p.y = p.y;
+              loc_handle_mousemotion(lglw);
+
+              if(LGLW_MOUSE_TOUCH_RMB_STATE_LMB  == lglw->mouse.touch.syn_rmb_hold_state)
+              {
+                 if( (sABS(p.x - lglw->mouse.touch.hold_start_p.x) >= LGLW_MOUSE_TOUCH_RMB_MOVE_THRESHOLD) ||
+                     (sABS(p.y - lglw->mouse.touch.hold_start_p.y) >= LGLW_MOUSE_TOUCH_RMB_MOVE_THRESHOLD)
+                     )
+                 {
+                    lglw->mouse.touch.syn_rmb_hold_state = LGLW_MOUSE_TOUCH_RMB_STATE_IDLE;
+                 }
+              }
+
+           }
+           break;
 
       } // switch message
    } // if lglw

@@ -24,7 +24,7 @@
  * ---- info   : This is part of the "lglw" package.
  * ----
  * ---- created: 04Aug2018
- * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018
+ * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018, 08Aug2018
  * ----
  * ----
  */
@@ -90,6 +90,9 @@ typedef struct lglw_vec2i_s {
 #define LGLW_KMOD_RCTRL   (1u << 2)
 #define LGLW_KMOD_RSHIFT  (1u << 3)
 
+#define LGLW_KMOD_CTRL    (LGLW_KMOD_LCTRL | LGLW_KMOD_RCTRL)
+#define LGLW_KMOD_SHIFT   (LGLW_KMOD_LSHIFT | LGLW_KMOD_RSHIFT)
+
 // Special (non-unicode) keys
 #define LGLW_VKEY_EXT        (0x10000000u)
 #define LGLW_VKEY_BACKSPACE  (LGLW_VKEY_EXT | 0x08u)
@@ -137,7 +140,8 @@ typedef void (*lglw_focus_fxn_t) (lglw_t _lglw, uint32_t _focusState, uint32_t _
 
 // Keyboard callback function type
 //  (note) 'vkey' is either a special key (cursor, insert, ..) or a unicode-translated character
-typedef void (*lglw_keyboard_fxn_t) (lglw_t _lglw, uint32_t _vkey, uint32_t _kmod, lglw_bool_t _bPressed);
+//  Must return LGLW_TRUE when event has been processed, LGLW_FALSE when event shall be forwarded to next window / listener
+typedef lglw_bool_t (*lglw_keyboard_fxn_t) (lglw_t _lglw, uint32_t _vkey, uint32_t _kmod, lglw_bool_t _bPressed);
 
 // Timer callback function type
 typedef void (*lglw_timer_fxn_t) (lglw_t _lglw);
@@ -240,6 +244,12 @@ void lglw_timer_callback_set (lglw_t _lglw, lglw_timer_fxn_t _cbk);
 
 // Set file drag'n'drop callback
 void lglw_dropfiles_callback_set (lglw_t _lglw, lglw_dropfiles_fxn_t _cbk);
+
+// Enable / disable Windows 8+ touch API
+void lglw_touchinput_set (lglw_t _lglw, lglw_bool_t _bEnable);
+
+// Check if touch input is enabled
+lglw_bool_t lglw_touchinput_get (lglw_t _lglw);
 
 
 #include "cplusplus_end.h"
