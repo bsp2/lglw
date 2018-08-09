@@ -251,6 +251,9 @@ void lglw_touchinput_set (lglw_t _lglw, lglw_bool_t _bEnable);
 // Check if touch input is enabled
 lglw_bool_t lglw_touchinput_get (lglw_t _lglw);
 
+// Show / hide virtual keyboard
+void lglw_touchkeyboard_show (lglw_t _lglw, lglw_bool_t _bEnable);
+
 
 #include "cplusplus_end.h"
 

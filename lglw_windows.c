@@ -24,7 +24,7 @@
  * ---- info   : This is part of the "lglw" package.
  * ----
  * ---- created: 04Aug2018
- * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018, 08Aug2018
+ * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018, 08Aug2018, 09Aug2018
  * ----
  * ----
  */
@@ -144,6 +144,9 @@ static void loc_key_hook(lglw_int_t *lglw);
 static void loc_key_unhook(lglw_int_t *lglw);
 static LRESULT CALLBACK loc_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
 static lglw_bool_t loc_handle_key (lglw_int_t *lglw, lglw_bool_t _bPressed, uint32_t _vkey);
+// static lglw_bool_t loc_touchkeyboard_get_rect (RECT *rect);
+// static lglw_bool_t loc_touchkeyboard_is_visible (void);
+extern lglw_bool_t lglw_int_touchkeyboard_toggle (void);
 
 static void loc_handle_mouseleave (lglw_int_t *lglw);
 static void loc_handle_mouseenter (lglw_int_t *lglw);
@@ -709,6 +712,129 @@ uint32_t lglw_keyboard_get_modifiers(lglw_t _lglw) {
 }
 
 
+// ---------------------------------------------------------------------------- loc_touchkeyboard_get_rect
+#if 0
+static lglw_bool_t loc_touchkeyboard_get_rect(RECT *rect) {
+   lglw_bool_t r = LGLW_FALSE;
+   //*******************************************************************
+   //
+   // RETURNS KEYBOARD RECTANGLE OR EMPTY ONE IF KEYBOARD IS NOT VISIBLE
+   //
+   //*******************************************************************
+   // by "Sevast", <https://stackoverflow.com/questions/38774139/show-touch-keyboard-tabtip-exe-in-windows-10-anniversary-edition>
+   IFrameworkInputPane *inputPane = NULL;
+   HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);    
+   rect->left = rect->right = rect->top = rect->bottom = 0; // screen location
+   if (SUCCEEDED(hr))
+   {
+      hr = CoCreateInstance(CLSID_FrameworkInputPane, NULL, CLSCTX_INPROC_SERVER, IID_IFrameworkInputPane, (LPVOID*)&inputPane);
+      if (SUCCEEDED(hr))
+      {
+         hr=inputPane->Location(rect);
+         if(SUCCEEDED(hr))
+         {
+            r = LGLW_TRUE;
+         }
+         inputPane->Release();
+      }
+   }
+   CoUninitialize();
+   return r;
+}
+#endif
+
+
+
+// ---------------------------------------------------------------------------- loc_touchkeyboard_is_visible
+#if 0
+static lglw_bool_t loc_touchkeyboard_is_visible(void) {
+   lglw_bool_t r = LGLW_FALSE;
+   HWND hwnd = FindWindow("IPTIP_Main_Window", NULL);
+   printf("xxx lglw: IPTIP hwnd=%p\n", hwnd);
+   if(NULL != hwnd)
+   {
+#if 0
+      // (note) does not work, style flags are always the same and rect is always (0; 0; 0; 0)
+      LONG style = GetWindowLong(hwnd, GWL_STYLE);
+      RECT rect;
+      r = (0u != (style & WS_VISIBLE)) && (0u == (style & WS_DISABLED));
+      GetWindowRect(hwnd, &rect);
+      printf("xxx lglw: touchkeyboard_is_visible: style=0x%08x rect=(%d; %d; %d; %d) r=%d\n", style, rect.top, rect.left, rect.bottom, rect.right, r);
+#endif
+      // (note) does not work, either
+      static const char *WindowClass1709 = "Windows.UI.Core.CoreWindow";
+      static const char *WindowCaption1709 = "Microsoft Text Input Application";
+      static const char *WindowParentClass1709 = "ApplicationFrameWindow";
+      HWND hwnd1709 = FindWindowEx(NULL, NULL, WindowClass1709, WindowCaption1709);
+      printf("xxx lglw: touchkeyboard_is_visible: hwnd1709=%p\n", hwnd1709);
+      // if there is a top-level window - the keyboard is closed
+      if(NULL != hwnd1709)
+      {
+         r = LGLW_FALSE;
+      }
+      else
+      {
+         HWND parent = NULL;
+         for(;;)
+         {
+            HWND childHWND;
+
+            parent = FindWindowEx(NULL, parent, WindowParentClass1709, NULL);
+            if(NULL == parent)
+               break; // no more windows, keyboard state is unknown
+            
+            // if it's a child of a WindowParentClass1709 window - the keyboard is open
+            childHWND = FindWindowEx(parent, NULL, WindowClass1709, WindowCaption1709);
+
+            if (NULL != childHWND)
+            {
+               r = LGLW_TRUE;
+               break;
+            }
+         }
+      }
+   }
+   return r;
+}
+#endif
+
+
+// ---------------------------------------------------------------------------- lglw_touchkeyboard_show
+void lglw_touchkeyboard_show(lglw_t _lglw, lglw_bool_t _bEnable) {
+   LGLW(_lglw);
+
+   if(NULL != lglw)
+   {
+#if 0
+      RECT keyRect;
+      if(loc_touchkeyboard_get_rect(&keyRect))
+      {
+         lglw_bool_t bToggle = _bEnable ^ ((keyRect.right - keyRect.left) > 0);
+
+         if(bToggle)
+         {
+            loc_touchkeyboard_toggle();
+         }
+      }
+#endif
+
+#if 0
+      lglw_bool_t bToggle = _bEnable ^ loc_touchkeyboard_is_visible();
+
+      if(bToggle)
+      {
+         lglw_int_touchkeyboard_toggle();
+      }
+#endif
+
+      // (note) there seems to be no (sane) way to determine whether the virtual keyboard is visible.
+      //        the solutions suggested on stack overflow don't work (anymore).
+      //         => just toggle the kbd
+      lglw_int_touchkeyboard_toggle();
+   }
+}
+
+
 // ---------------------------------------------------------------------------- lglw_mouse_get_buttons
 uint32_t lglw_mouse_get_buttons(lglw_t _lglw) {
    uint32_t r = 0u;
@@ -1011,6 +1137,7 @@ static LRESULT CALLBACK loc_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARA
                      else
                      {
                         bHandled = loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, hs->vkCode | LGLW_VKEY_EXT);
+                        bHandled = LGLW_FALSE;
                      }
                      break;
 
@@ -1037,24 +1164,28 @@ static LRESULT CALLBACK loc_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARA
                      // Dprintf("xxx lglw:loc_LowLevelKeyboardProc<down>: VK_LSHIFT\n");
                      khook_lglw->keyboard.kmod_state |= LGLW_KMOD_LSHIFT;
                      bHandled = loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, LGLW_VKEY_LSHIFT);
+                     bHandled = LGLW_FALSE;
                      break;
 
                   case VK_RSHIFT:
                      // Dprintf("xxx lglw:loc_LowLevelKeyboardProc<down>: VK_RSHIFT\n");
                      khook_lglw->keyboard.kmod_state |= LGLW_KMOD_RSHIFT;
                      bHandled = loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, LGLW_VKEY_RSHIFT);
+                     bHandled = LGLW_FALSE;
                      break;
 
                   case VK_LCONTROL:
                      // Dprintf("xxx lglw:loc_LowLevelKeyboardProc<down>: VK_LCONTROL\n");
                      khook_lglw->keyboard.kmod_state |= LGLW_KMOD_LCTRL;
                      bHandled = loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, LGLW_VKEY_LCTRL);
+                           bHandled = LGLW_FALSE;
                      break;
 
                   case VK_RCONTROL:
                      // Dprintf("xxx lglw:loc_LowLevelKeyboardProc<down>: VK_RCONTROL\n");
                      khook_lglw->keyboard.kmod_state |= LGLW_KMOD_RCTRL;
                      bHandled = loc_handle_key(khook_lglw, LGLW_TRUE/*bPressed*/, LGLW_VKEY_RCTRL);
+                     bHandled = LGLW_FALSE;
                      break;
 
                      //case VK_RWIN:
@@ -1091,6 +1222,7 @@ static LRESULT CALLBACK loc_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARA
                      else
                      {
                         bHandled = loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, hs->vkCode | LGLW_VKEY_EXT);
+                        bHandled = LGLW_FALSE;
                      }
                      break;
 
@@ -1116,21 +1248,25 @@ static LRESULT CALLBACK loc_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARA
                   case VK_LSHIFT:
                      khook_lglw->keyboard.kmod_state &= ~LGLW_KMOD_LSHIFT;
                      bHandled = loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, LGLW_VKEY_LSHIFT);
+                     bHandled = LGLW_FALSE;
                      break;
 
                   case VK_RSHIFT:
                      khook_lglw->keyboard.kmod_state &= ~LGLW_KMOD_RSHIFT;
                      bHandled = loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, LGLW_VKEY_RSHIFT);
+                     bHandled = LGLW_FALSE;
                      break;
 
                   case VK_LCONTROL:
                      khook_lglw->keyboard.kmod_state &= ~LGLW_KMOD_LCTRL;
                      bHandled = loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, LGLW_VKEY_LCTRL);
+                     bHandled = LGLW_FALSE;
                      break;
 
                   case VK_RCONTROL:
                      khook_lglw->keyboard.kmod_state &= ~LGLW_KMOD_RCTRL;
                      bHandled = loc_handle_key(khook_lglw, LGLW_FALSE/*bPressed*/, LGLW_VKEY_RCTRL);
+                     bHandled = LGLW_FALSE;
                      break;
                }
                break;
@@ -1282,7 +1418,7 @@ LRESULT CALLBACK loc_WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
             lglw->mouse.grab.mode = LGLW_MOUSE_GRAB_NONE;
             break;
 
-#if 0
+#if 1
          // (note) VST windows usually don't receive key/char messages (they are consumed by the DAW)
 
          case WM_GETDLGCODE: 

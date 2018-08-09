@@ -10,6 +10,7 @@ It was designed for OpenGL based VST plugin UIs.
 
 * creates OpenGL context before actual output window is opened
 * keyboard input works in VST hosts
+   - virtual touch keyboard support (win8+)
 * mouse input
    - mouse grab (lock / warp) feature
    - touch input
