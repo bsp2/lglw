@@ -24,7 +24,7 @@
  * ---- info   : This is part of the "lglw" package.
  * ----
  * ---- created: 04Aug2018
- * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018, 08Aug2018, 09Aug2018
+ * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018, 08Aug2018, 09Aug2018, 18Aug2018
  * ----
  * ----
  */
@@ -1085,6 +1085,103 @@ lglw_bool_t lglw_touchinput_get(lglw_t _lglw) {
    }
 
    return r;
+}
+
+
+// ---------------------------------------------------------------------------- lglw_clipboard_text_set
+void lglw_clipboard_text_set(lglw_t _lglw, const uint32_t _numChars, const char *_text) {
+   LGLW(_lglw);
+   (void)_numChars;
+
+   if(NULL != _text)
+   {
+      if(NULL != _lglw)
+      {
+         if(NULL != lglw->win.hwnd)
+         {
+            uint32_t numChars = (0u == _numChars) ? ((uint32_t)strlen(_text)+1u) : _numChars;
+
+            if(numChars > 0u)
+            {
+               if(OpenClipboard(lglw->win.hwnd))
+               {
+                  HANDLE hGlobal = GlobalAlloc(GMEM_MOVEABLE, numChars * sizeof(TCHAR));
+
+                  if(NULL != hGlobal)
+                  {
+                     char *d = (char*) GlobalLock(hGlobal);
+
+                     if(NULL != d)
+                     {
+                        uint32_t i;
+                        for(i = 0u; i < numChars; i++)
+                        {
+                           d[i] = _text[i];
+                        }
+                        d[numChars - 1] = 0;
+
+                        Dprintf("xxx lglw_clipboard_text_set: SetClipboardData(\"%s\")\n", d);
+
+                        GlobalUnlock(hGlobal);
+                        (void)SetClipboardData(CF_TEXT, hGlobal);
+                     }
+                  }
+
+                  CloseClipboard();
+               }
+            }
+         }
+      }
+   }
+}
+
+
+// ---------------------------------------------------------------------------- lglw_clipboard_text_get
+void lglw_clipboard_text_get(lglw_t _lglw, uint32_t _maxChars, uint32_t *_retNumChars, char *_retText) {
+   LGLW(_lglw);
+
+   if(NULL != _retNumChars)
+      *_retNumChars = 0u;
+
+   if(NULL != _retText)
+      *_retText = 0;
+
+   if(_maxChars > 0u)
+   {
+      if(NULL != _lglw)
+      {
+         if(NULL != lglw->win.hwnd)
+         {
+            if(OpenClipboard(lglw->win.hwnd))
+            {
+               const char *data = (const char*)GetClipboardData(CF_TEXT);
+
+               Dprintf("xxx lglw_clipboard_text_get: data=\"%s\"\n", data);
+
+               if(NULL != data)
+               {
+                  uint32_t i = 0u;
+
+                  for(; i < _maxChars; i++)
+                  {
+                     _retText[i] = data[i];
+
+                     if(0 == _retText[i])
+                        break;
+                  }
+                  _retText[_maxChars - 1u] = 0;  // ASCIIZ
+
+                  if(NULL != _retNumChars)
+                  {
+                     *_retNumChars = i;
+                  }
+               }
+
+               CloseClipboard();
+            }
+         }
+      }
+   }
 }
 
 

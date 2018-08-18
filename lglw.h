@@ -24,7 +24,7 @@
  * ---- info   : This is part of the "lglw" package.
  * ----
  * ---- created: 04Aug2018
- * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018, 08Aug2018
+ * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018, 08Aug2018, 18Aug2018
  * ----
  * ----
  */
@@ -254,6 +254,12 @@ lglw_bool_t lglw_touchinput_get (lglw_t _lglw);
 // Show / hide virtual keyboard
 void lglw_touchkeyboard_show (lglw_t _lglw, lglw_bool_t _bEnable);
 
+// Set clipboard string
+//  (note) numChars==0: copy until (including) ASCIIz
+void lglw_clipboard_text_set (lglw_t _lglw, const uint32_t _numChars, const char *_text);
+
+// Get clipboard string
+void lglw_clipboard_text_get (lglw_t _lglw, uint32_t _maxChars, uint32_t *_retNumChars, char *_retText);
 
 #include "cplusplus_end.h"
 
