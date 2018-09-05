@@ -38,8 +38,8 @@
 #include <windows.h>
 #include <windowsx.h>
 
-#define Dprintf if(0);else printf
-// #define Dprintf if(1);else printf
+// #define Dprintf if(0);else printf
+#define Dprintf if(1);else printf
 
 // ---------------------------------------------------------------------------- macros and defines
 #define LGLW(a) lglw_int_t *lglw = ((lglw_int_t*)(a))
@@ -79,6 +79,7 @@ typedef struct lglw_int_s {
       HDC          hdc;
       HHOOK        keyboard_ll_hhook;
       lglw_vec2i_t size;
+      int32_t      swap_interval;
    } win;
 
    struct {
@@ -395,6 +396,59 @@ lglw_bool_t lglw_window_open (lglw_t _lglw, void *_parentHWNDOrNull, int32_t _x,
 }
 
 
+// ---------------------------------------------------------------------------- lglw_window_resize
+lglw_bool_t lglw_window_resize (lglw_t _lglw, int32_t _w, int32_t _h) {
+   lglw_bool_t r = LGLW_FALSE;
+   LGLW(_lglw);
+
+   if(NULL != lglw)
+   {
+      if(NULL != lglw->win.hwnd)
+      {
+         r = LGLW_TRUE;
+
+         SetWindowPos(lglw->win.hwnd,
+                      HWND_TOP,
+                      0, 0, // x/y
+                      _w, _h,
+                      SWP_NOMOVE | SWP_SHOWWINDOW
+                      );
+
+         int deltaW = _w - lglw->win.size.x;
+         int deltaH = _h - lglw->win.size.y;
+
+         lglw->win.size.x = _w;
+         lglw->win.size.y = _h;
+
+         // Resize parent window (if any)
+         {
+            HWND hwnd;
+            hwnd = GetAncestor(lglw->win.hwnd, GA_ROOT);
+            Dprintf("xxx lglw_window_resize: ancestor=%p\n", hwnd);
+            if(NULL != hwnd)
+            {
+               RECT rect;
+               if(GetWindowRect(hwnd, &rect))
+               {
+                  rect.right += deltaW;
+                  rect.bottom += deltaH;
+                  
+                  SetWindowPos(hwnd,
+                               HWND_TOP,
+                               0, 0, // x/y
+                               rect.right - rect.left, rect.bottom - rect.top,
+                               SWP_NOMOVE | SWP_FRAMECHANGED | SWP_SHOWWINDOW
+                               );
+               }
+            }
+         }
+      }
+   }
+
+   return r;
+}
+
+
 // ---------------------------------------------------------------------------- lglw_window_close
 void lglw_window_close (lglw_t _lglw) {
    LGLW(_lglw);
@@ -549,9 +603,9 @@ void lglw_swap_buffers(lglw_t _lglw) {
 }
 
 
-// ---------------------------------------------------------------------------- lglw_swap_buffers
+// ---------------------------------------------------------------------------- lglw_swap_interval_set
 typedef void (APIENTRY *PFNWGLEXTSWAPINTERVALPROC) (int);
-void lglw_swap_interval(lglw_t _lglw, int32_t _ival) {
+void lglw_swap_interval_set(lglw_t _lglw, int32_t _ival) {
    LGLW(_lglw);
 
    if(NULL != lglw)
@@ -561,8 +615,23 @@ void lglw_swap_interval(lglw_t _lglw, int32_t _ival) {
       if(NULL != wglSwapIntervalEXT)
       {
          wglSwapIntervalEXT(_ival);
+         lglw->win.swap_interval = _ival;
       }
    }
+}
+
+
+// ---------------------------------------------------------------------------- lglw_swap_interval_get
+int32_t lglw_swap_interval_get(lglw_t _lglw) {
+   LGLW(_lglw);
+   int32_t r = 0;
+
+   if(NULL != lglw)
+   {
+      r = lglw->win.swap_interval;
+   }
+
+   return r;
 }
 
 
@@ -1633,6 +1702,7 @@ LRESULT CALLBACK loc_WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
               }
               break;
 
+#ifdef BUILD_64
               // Touch messages:
 #ifndef GET_X_LPARAM
 #define GET_X_LPARAM(lp)                        ((int)(short)LOWORD(lp))
@@ -1816,6 +1886,7 @@ LRESULT CALLBACK loc_WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
 
            }
            break;
+#endif // BUILD_64
 
       } // switch message
    } // if lglw

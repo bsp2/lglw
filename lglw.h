@@ -24,7 +24,7 @@
  * ---- info   : This is part of the "lglw" package.
  * ----
  * ---- created: 04Aug2018
- * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018, 08Aug2018, 18Aug2018
+ * ---- changed: 05Aug2018, 06Aug2018, 07Aug2018, 08Aug2018, 18Aug2018, 05Sep2018
  * ----
  * ----
  */
@@ -171,6 +171,9 @@ void *lglw_userdata_get (lglw_t _lglw);
 //   (note) when w or h is less than 16, the hidden window size is used instead (see lglw_init())
 lglw_bool_t lglw_window_open (lglw_t _lglw, void *_parentHWNDOrNull, int32_t _x, int32_t _y, int32_t _w, int32_t _h);
 
+// Resize previously opened LGLW window
+lglw_bool_t lglw_window_resize (lglw_t _lglw, int32_t _w, int32_t _h);
+
 // Close LGLW window
 void lglw_window_close (lglw_t _lglw);
 
@@ -201,8 +204,11 @@ void lglw_glcontext_pop (lglw_t _lglw);
 // Swap front- and backbuffers
 void lglw_swap_buffers (lglw_t _lglw);
 
-// Swap interval (0=vsync off, 1=vsync on)
-void lglw_swap_interval (lglw_t _lglw, int32_t _ival);
+// Set swap interval (0=vsync off, 1=vsync on)
+void lglw_swap_interval_set (lglw_t _lglw, int32_t _ival);
+
+// Get swap interval (0=vsync off, 1=vsync on)
+int32_t lglw_swap_interval_get (lglw_t _lglw);
 
 // Install mouse callback
 void lglw_mouse_callback_set (lglw_t _lglw, lglw_mouse_fxn_t _cbk);
