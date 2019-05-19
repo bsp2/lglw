@@ -87,11 +87,17 @@ typedef struct lglw_vec2i_s {
 // Modifier keys
 #define LGLW_KMOD_LCTRL   (1u << 0)
 #define LGLW_KMOD_LSHIFT  (1u << 1)
-#define LGLW_KMOD_RCTRL   (1u << 2)
-#define LGLW_KMOD_RSHIFT  (1u << 3)
+#define LGLW_KMOD_LALT    (1u << 2)
+#define LGLW_KMOD_LSUPER  (1u << 3)  // (note) unused (on Windows)
+#define LGLW_KMOD_RCTRL   (1u << 4)
+#define LGLW_KMOD_RSHIFT  (1u << 5)
+#define LGLW_KMOD_RALT    (1u << 6)
+#define LGLW_KMOD_RSUPER  (1u << 7)  // (note) right windows key
 
-#define LGLW_KMOD_CTRL    (LGLW_KMOD_LCTRL | LGLW_KMOD_RCTRL)
+#define LGLW_KMOD_CTRL    (LGLW_KMOD_LCTRL  | LGLW_KMOD_RCTRL)
 #define LGLW_KMOD_SHIFT   (LGLW_KMOD_LSHIFT | LGLW_KMOD_RSHIFT)
+#define LGLW_KMOD_ALT     (LGLW_KMOD_LALT   | LGLW_KMOD_RALT)
+#define LGLW_KMOD_SUPER   (LGLW_KMOD_LSUPER | LGLW_KMOD_RSUPER)
 
 // Special (non-unicode) keys
 #define LGLW_VKEY_EXT        (0x10000000u)
@@ -127,6 +133,10 @@ typedef struct lglw_vec2i_s {
 #define LGLW_VKEY_RSHIFT     (LGLW_VKEY_EXT | 0xa1u)
 #define LGLW_VKEY_LCTRL      (LGLW_VKEY_EXT | 0xa2u)
 #define LGLW_VKEY_RCTRL      (LGLW_VKEY_EXT | 0xa3u)
+#define LGLW_VKEY_LALT       (LGLW_VKEY_EXT | 0xa4u)
+#define LGLW_VKEY_RALT       (LGLW_VKEY_EXT | 0xa5u)
+#define LGLW_VKEY_LSUPER     (LGLW_VKEY_EXT | 0x5bu)  // start menu
+#define LGLW_VKEY_RSUPER     (LGLW_VKEY_EXT | 0x5du)  // context menu
 
 // Keyboard utility macros
 #define LGLW_IS_CHAR_KEY(a)     (0u == ((a) & LGLW_VKEY_EXT))
@@ -198,6 +208,10 @@ void lglw_redraw_callback_set (lglw_t _lglw, lglw_redraw_fxn_t _cbk);
 // Save previous GL context and bind LGLW context
 void lglw_glcontext_push (lglw_t _lglw);
 
+// Rebind LGLW context
+//  (note) experimental. try push/pop first.
+void lglw_glcontext_rebind (lglw_t _lglw);
+
 // Unbind LGLW context and restore previous GL context
 void lglw_glcontext_pop (lglw_t _lglw);
 
@@ -221,6 +235,9 @@ void lglw_keyboard_callback_set (lglw_t _lglw, lglw_keyboard_fxn_t _cbk);
 
 // Get current key modifier state
 uint32_t lglw_keyboard_get_modifiers (lglw_t _lglw);
+
+// Clear current key modifier state (workaround for stuck-modifier-after-dialog issue)
+void lglw_keyboard_clear_modifiers (lglw_t _lglw);
 
 // Get current mouse button state
 uint32_t lglw_mouse_get_buttons (lglw_t _lglw);
@@ -248,6 +265,9 @@ void lglw_timer_stop (lglw_t _lglw);
 // Set periodic timer callback
 void lglw_timer_callback_set (lglw_t _lglw, lglw_timer_fxn_t _cbk);
 
+// Get milliseconds since init
+uint32_t lglw_time_get_millisec (lglw_t _lglw);
+
 // Set file drag'n'drop callback
 void lglw_dropfiles_callback_set (lglw_t _lglw, lglw_dropfiles_fxn_t _cbk);
 
@@ -266,6 +286,11 @@ void lglw_clipboard_text_set (lglw_t _lglw, const uint32_t _numChars, const char
 
 // Get clipboard string
 void lglw_clipboard_text_get (lglw_t _lglw, uint32_t _maxChars, uint32_t *_retNumChars, char *_retText);
+
+// Process all available events and return (i.e.: don't loop, don't block)
+//  (note) events are usually delivered to the window's event callback (WndProc on Windows)
+//  (note) do we really need this on Linux ?
+void lglw_events (lglw_t _lglw);
 
 #include "cplusplus_end.h"
 
